@@ -28,7 +28,7 @@ library(progress)
 
 #### load in and set up data ####
 
-reef <- read.csv('nc_reef_data.csv')
+reef <- read.csv('nc_reef_data_dhw.csv')
 
 #create dark and light datasets
 darkknown <- subset(reef, diff < 0 & measuredlight == 1) 
@@ -55,7 +55,12 @@ nrow(reef[reef$vesseltotal > 0,])/nrow(reef)
 head(reef)
 nrow(reef[reef$hsmax > 1,])/nrow(reef)
 
-#### find percentage of reefs experiencing all three
+#### find percentage of reefs experiencing dhw warming ####
+
+head(reef)
+nrow(reef[reef$dhw > 1,])/nrow(reef)
+
+#### find percentage of reefs experiencing noise, light, short term heat stress
 
 head(reef)
 nrow(reef[reef$hsmax > 1 & reef$lightpres ==1 & reef$vesseltotal > 0,])/nrow(reef)
@@ -129,51 +134,62 @@ light$coord <- NULL
 cl <- makeCluster(3)
 
 #spatial correlation set up
-spE <- corExp(form = ~ lon + lat, nugget = T)
+spE <- corExp(form = ~ lon + lat, nugget = F)
 
 #first create random dataset
 randomcoral <- reef[sample(nrow(reef), 1000),]
 randomcoral <- randomcoral[randomcoral$sstmax > 10,] #REMOVE OUTLIER
+randomcoral$dhw_sqrt <- sqrt(randomcoral$dhw)
 
-#run simple model with light only
+#run simple model with light only hs
 model_light <- gls(hsmax ~ lightpres, correlation = spE, method='ML', data=randomcoral)
 summary(model_light)
 plot(model_light)
 
-#run simple model with noise only
+#run simple model with noise only hs
 model_noise <- gls(hsmax ~ vesseltotal, correlation = spE, method='ML', data=randomcoral)
 summary(model_noise)
 plot(model_noise)
 
-#run simple model with sstmax only
+#run simple model with sstmax only hs
 model_sst <- gls(hsmax ~ sstmax, correlation = spE, method='ML', data=randomcoral)
 summary(model_sst)
 plot(model_sst)
 
-#run model suite - scaled
-smodel0 <- gls(hsmax ~ 1, correlation = spE, randomcoral)
-smodel1 <- gls(hsmax ~ scale(vesseltotal) , correlation = spE, randomcoral)
-smodel2 <- gls(hsmax ~ lightpres , correlation = spE, randomcoral)
-smodel3 <- gls(hsmax ~ scale(sstmax), correlation = spE, randomcoral)
-smodel4 <- gls(hsmax ~ scale(vesseltotal) + scale(sstmax), correlation = spE, randomcoral)
-smodel5 <- gls(hsmax ~ scale(vesseltotal) + scale(lightpres), correlation = spE, randomcoral)
-smodel6 <- gls(hsmax ~ lightpres + scale(sstmax, correlation = spE), randomcoral)
-smodel7 <- gls(hsmax ~ scale(vesseltotal) + lightpres + scale(sstmax), correlation = spE, randomcoral)
-smodel8 <- gls(hsmax ~ scale(vesseltotal) * lightpres + scale(sstmax), correlation = spE, randomcoral)
-smodel9 <- gls(hsmax ~ scale(vesseltotal) + lightpres * scale(sstmax), correlation = spE, randomcoral)
-smodel10 <- gls(hsmax ~ scale(sstmax) * scale(vesseltotal) + lightpres, correlation = spE, randomcoral)
-smodel11 <- gls(hsmax ~ scale(vesseltotal) * lightpres * scale(sstmax), correlation = spE, randomcoral)
+#run simple model with light only dhw
+model_light <- gls(dhw_sqrt ~ lightpres, correlation = spE, method='ML', data=randomcoral)
+summary(model_light)
+plot(model_light)
 
-#model selection
-model.sel(smodel0, smodel1, smodel2, smodel3, smodel4, smodel5, smodel6, smodel7, smodel8, smodel9, smodel10, smodel11)
-AIC(smodel0, smodel1, smodel2, smodel3, smodel4, smodel5, smodel6, smodel7, smodel8, smodel9, smodel10, smodel11)
+#run simple model with noise only dhw
+model_noise <- gls(dhw_sqrt ~ vesseltotal, correlation = spE, method='ML', data=randomcoral)
+summary(model_noise)
+plot(model_noise)
 
-stopCluster(cl)
+#run simple model with sstmax only dhw
+model_sst <- gls(dhw_sqrt ~ sstmax, correlation = spE, method='ML', data=randomcoral)
+summary(model_sst)
+plot(model_sst)
+
+#spatial correlation set up
+spE <- corExp(form = ~ lon + lat, nugget = F)
+spA <- corSpher(form = ~ lon + lat, nugget = F)
+
+#hotspot model
+hsmaxmodel <- gls(hsmax.x ~ scale(vesseltotal) * lightpres + scale(bath), correlation = spA, randomcoral)
+summary(hsmaxmodel)
+
+#degree heating model with sea surface temperature
+dhwsst <- gls(dhw_sqrt ~ scale(vesseltotal) * lightpres * scale(sstmax) + scale(bath.x), correlation = spA, randomcoral)
+summary(dhwsst)
+
+#degree heating model 
+dhwmod <- gls(dhw_sqrt ~ scale(vesseltotal) * lightpres + scale(bath), correlation = spA, randomcoral)
+summary(dhwmod)
 
 #plot
 
 tiff('figure2.tiff', units="in", width=5, height=4, res=600, compression = 'lzw')
-
 
 p <- ggplot(randomcoral, aes(x = sstmax, y = hsmax, colour = lightpres)) + 
   geom_point() + labs(x='Maximum Sea Surface Temperature (\u00B0C)', y='Hot Spot Likelihood ((\u00B0C) of Heat Stress)') +
@@ -182,6 +198,7 @@ p <- ggplot(randomcoral, aes(x = sstmax, y = hsmax, colour = lightpres)) +
   theme(text=element_text(size=10)) 
 p + labs(color='Light Pollution \n Presence') 
 
-
 dev.off()
+
+
 
